@@ -404,7 +404,7 @@ The user is a French speaker learning English. Check ONLY the user's last messag
 Answer with ONLY a JSON object, no markdown: {"reply": string, "corrections": [{"wrong": string, "right": string, "why": string}], "better": string}
 "wrong" = the faulty fragment copied from the user's message; "right" = the corrected fragment; "why" = one short explanation written in French. "better" = the user's whole message rewritten correctly, or "" if there is no mistake (then corrections is []).`;
 }
-async function askAI(scn, history) {
+async function askAI(scn, history, opts) {
   const msgs = history.map(m => ({ role: m.role, content: m.text }));
   if (msgs[0] && msgs[0].role === 'assistant') msgs.unshift({ role: 'user', content: '(Start the conversation.)' });
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 30000);
@@ -415,9 +415,16 @@ async function askAI(scn, history) {
       if (!r.ok) throw new Error('API ' + r.status);
       const j = await r.json(); text = (j.content || []).map(c => c.text || '').join('');
     } else {
-      const r = await fetch('https://text.pollinations.ai/openai', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'openai', private: true, messages: [{ role: 'system', content: sysPrompt(scn) }, ...msgs] }) });
+      const call = () => fetch('https://text.pollinations.ai/openai', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'openai', private: true, messages: [{ role: 'system', content: sysPrompt(scn) }, ...msgs] }) });
+      let r = await call();
+      if (r.status === 402) { // mode gratuit : 1 réponse toutes les 45 s
+        const wait = Math.min(50, +((await r.text()).match(/Retry after (\d+)s/) || [])[1] || 45);
+        if (opts && opts.onWait) opts.onWait(wait);
+        await new Promise(res => setTimeout(res, (wait + 1) * 1000)); r = await call();
+      }
       if (!r.ok) throw new Error('API ' + r.status);
-      const j = await r.json(); text = j.choices && j.choices[0] && j.choices[0].message.content;
+      const j = await r.json(), m = (j.choices && j.choices[0] && j.choices[0].message) || {};
+      text = m.content || (m.tool_calls && m.tool_calls[0] && m.tool_calls[0].function && m.tool_calls[0].function.arguments) || '';
     }
     return parseAI(text || '');
   } finally { clearTimeout(to); }
@@ -432,7 +439,9 @@ function addFix(userText, c, better) {
   const id = 'f.' + (sentence || c.right).toLowerCase().replace(/[^a-z]/g, '').slice(0, 40);
   if (ITEMS[id] || S.fixes.length > 80) return;
   const exp = `${c.wrong} → ${c.right}. ${c.why || ''}`.trim();
-  const it = words.length >= 3 && words.length <= 12 ? { type: 'order', tag: 'chat', fr: 'Remets ta phrase corrigée dans l\'ordre.', en: sentence.replace(/[.!?]+$/, ''), exp } : { type: 'mcq', tag: 'chat', q: 'Quelle version est correcte ?', opts: [c.right, c.wrong], exp };
+  const uw = new Set(userText.toLowerCase().match(/[a-z']+/g) || []), bw = sentence.toLowerCase().match(/[a-z']+/g) || [];
+  const close = bw.length && bw.filter(w => uw.has(w)).length / bw.length >= .6; // la phrase corrigée doit rester proche du message
+  const it = close && words.length >= 3 && words.length <= 12 ? { type: 'order', tag: 'chat', fr: 'Remets ta phrase corrigée dans l\'ordre.', en: sentence.replace(/[.!?]+$/, ''), exp } : { type: 'mcq', tag: 'chat', q: 'Quelle version est correcte ?', opts: [c.right, c.wrong], exp };
   it.id = id; S.fixes.push(it); reg(it, id);
 }
 function openChat(scn) {
@@ -465,7 +474,8 @@ function openChat(scn) {
     const ub = bubble('user', text); hist.push({ role: 'user', text });
     const typing = el('div', { class: 'bubble assistant typing', 'aria-label': 'Réponse en cours' }, el('i'), el('i'), el('i')); list.append(typing); list.scrollTop = list.scrollHeight;
     try {
-      const out = await askAI(scn, hist.slice(-14));
+      const out = await askAI(scn, hist.slice(-14), { onWait: s => { typing.setAttribute('aria-label', 'Attente'); list.append(el('p', { class: 'note wait' }, `Le mode gratuit accepte un message toutes les 45 secondes. Réponse dans ${s} s environ.`)); list.scrollTop = list.scrollHeight; } });
+      list.querySelectorAll('.wait').forEach(n => n.remove());
       typing.remove(); S.chatCount++;
       const card = el('div', { class: 'corr' });
       if (out.corrections.length) {
