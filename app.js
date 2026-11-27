@@ -23,7 +23,7 @@ const norm = s => String(s).toLowerCase().replace(/[’‘]/g, "'").replace(/[.,
 
 const ICONS = {
   home: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
-  path: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h5a3.5 3.5 0 0 0 0-7h-2a3.5 3.5 0 0 1 0-7h4"/>',
+  path: '<path d="M5 4.5h10.5A2.5 2.5 0 0 1 18 7v13H7.5A2.5 2.5 0 0 1 5 17.5z"/><path d="M5 17.5A2.5 2.5 0 0 1 7.5 15H18"/>',
   games: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
   stats: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
@@ -141,7 +141,7 @@ function toast(msg) {
 function sheet(msg, buttons) {
   const bg = el('div', { class: 'sheet-bg' });
   const box = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, el('p', {}, msg),
-    el('div', { class: 'row' }, buttons.map(b => el('button', { class: 'btn ' + (b.primary ? 'primary' : 'ghost'), onclick: () => { bg.remove(); b.fn && b.fn(); } }, b.label))));
+    el('div', { class: 'sheet-btns' }, buttons.map(b => el('button', { class: 'btn ' + (b.primary ? 'primary' : 'ghost'), onclick: () => { bg.remove(); b.fn && b.fn(); } }, b.label))));
   bg.append(box); document.body.append(bg);
 }
 const promptNodes = q => String(q).split(/(_{3,})/).map(p => /^_{3,}$/.test(p) ? el('span', { class: 'blank' }) : p);
@@ -261,8 +261,9 @@ function renderItem(it, submit) {
 
 function closePlay() { const r = $('#play'); r.hidden = true; r.innerHTML = ''; document.body.classList.remove('playing'); if ('speechSynthesis' in window) speechSynthesis.cancel(); render(); }
 function screen(cls, ...nodes) { const r = $('#play'); r.hidden = false; r.className = 'play screen ' + cls; document.body.classList.add('playing'); r.replaceChildren(...nodes); }
-function resultScreen({ title, big, sub, rows = [], actions = [] }) {
-  screen('result', el('div', { class: 'result-in' }, el('h2', {}, title), big ? el('div', { class: 'big' }, big) : null, sub ? el('p', { class: 'lead' }, sub) : null,
+const ring = (ratio, text) => { const r = 52, c = 2 * Math.PI * r; return el('div', { class: 'ring', role: 'img', 'aria-label': text, html: `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="${r}" class="ring-bg"/><circle cx="60" cy="60" r="${r}" class="ring-fg" style="--c:${c.toFixed(1)};--o:${(c * (1 - Math.max(0, Math.min(1, ratio)))).toFixed(1)}"/></svg>` }, el('b', {}, text)); };
+function resultScreen({ title, big, ratio, sub, rows = [], actions = [] }) {
+  screen('result', el('div', { class: 'result-in' }, el('h2', {}, title), ratio !== undefined ? ring(ratio, String(big)) : big ? el('div', { class: 'big' }, big) : null, sub ? el('p', { class: 'lead' }, sub) : null,
     rows.length ? el('dl', { class: 'rows' }, rows.map(([k, v]) => [el('dt', {}, k), el('dd', {}, v)])) : null,
     el('div', { class: 'stack' }, actions.map(a => el('button', { class: 'btn ' + (a.primary ? 'primary' : 'ghost') + ' wide', onclick: a.fn || closePlay }, a.label)))));
 }
@@ -315,7 +316,7 @@ async function startSession() {
   const list = buildSession(12); const res = await playList(list);
   if (res.reason === 'quit' && !res.n) return closePlay();
   const gained = res.ok * 10 + (res.n - res.ok) * 2, done = (S.days[today()] || { n: 0 }).n >= GOAL;
-  resultScreen({ title: done ? 'Séance terminée' : 'Séance interrompue', big: `${res.ok} / ${res.n}`, sub: done ? `Objectif du jour atteint. Série en cours : ${streakNow()} jour${streakNow() > 1 ? 's' : ''}.` : `Encore ${Math.max(0, GOAL - (S.days[today()] || { n: 0 }).n)} exercices pour valider ta journée.`,
+  resultScreen({ title: done ? 'Séance terminée' : 'Séance interrompue', big: `${res.ok} / ${res.n}`, ratio: res.ok / Math.max(1, res.n), sub: done ? `Objectif du jour atteint. Série en cours : ${streakNow()} jour${streakNow() > 1 ? 's' : ''}.` : `Encore ${Math.max(0, GOAL - (S.days[today()] || { n: 0 }).n)} exercices pour valider ta journée.`,
     rows: [['Réussite', pct(res.ok, res.n) + ' %'], ['Points gagnés', '+' + gained]],
     actions: [{ label: 'Terminer', primary: true }, { label: 'Refaire une séance', fn: startSession }] });
 }
@@ -338,7 +339,7 @@ async function noFault(key, label, ids) {
 async function simpleSet(label, list, extra = {}) {
   const res = await playList(list, extra);
   if (!res.n) return closePlay();
-  resultScreen({ title: label, big: `${res.ok} / ${res.n}`, sub: pct(res.ok, res.n) >= 80 ? 'Très bien. Les erreurs reviendront dans tes séances.' : 'Les erreurs reviendront dans tes séances pour les fixer.', actions: [{ label: 'Rejouer', primary: true, fn: () => simpleSet(label, list.map(x => x), extra) }, { label: 'Terminer' }] });
+  resultScreen({ title: label, big: `${res.ok} / ${res.n}`, ratio: res.ok / Math.max(1, res.n), sub: pct(res.ok, res.n) >= 80 ? 'Très bien. Les erreurs reviendront dans tes séances.' : 'Les erreurs reviendront dans tes séances pour les fixer.', actions: [{ label: 'Rejouer', primary: true, fn: () => simpleSet(label, list.map(x => x), extra) }, { label: 'Terminer' }] });
 }
 const verbIds = () => D.verbs.flatMap(v => [`v.${v.base}.p`, `v.${v.base}.pp`]);
 const GAMES = [
@@ -371,13 +372,13 @@ async function chapterPractice(c) {
   const res = await playList(c.ex), p = pct(res.ok, res.n), st = CH(c.id);
   if (!res.n) return closePlay();
   if (res.reason === 'done') st.practice = Math.max(st.practice, p); save();
-  resultScreen({ title: 'Exercices terminés', big: `${res.ok} / ${res.n}`, sub: p >= 60 ? 'Étape validée.' : 'Il faut au moins 60 % pour valider. Réessaie, c\'est plus simple la deuxième fois.', actions: [{ label: p >= 60 ? 'Continuer' : 'Réessayer', primary: true, fn: () => { p >= 60 ? (nav.sub = { chap: c.id }, closePlay()) : chapterPractice(c); } }, { label: 'Retour', fn: () => { nav.sub = { chap: c.id }; closePlay(); } }] });
+  resultScreen({ title: 'Exercices terminés', big: `${res.ok} / ${res.n}`, ratio: res.ok / Math.max(1, res.n), sub: p >= 60 ? 'Étape validée.' : 'Il faut au moins 60 % pour valider. Réessaie, c\'est plus simple la deuxième fois.', actions: [{ label: p >= 60 ? 'Continuer' : 'Réessayer', primary: true, fn: () => { p >= 60 ? (nav.sub = { chap: c.id }, closePlay()) : chapterPractice(c); } }, { label: 'Retour', fn: () => { nav.sub = { chap: c.id }; closePlay(); } }] });
 }
 async function chapterReading(c) {
   const res = await playList(c.reading.q), st = CH(c.id);
   if (!res.n) return closePlay();
   const ok = res.ok >= 2; if (ok) st.reading = true; save();
-  resultScreen({ title: 'Compréhension', big: `${res.ok} / ${res.n}`, sub: ok ? 'Étape validée.' : 'Relis le texte attentivement, il faut 2 bonnes réponses sur 3.', actions: [{ label: ok ? 'Continuer' : 'Réessayer', primary: true, fn: () => { ok ? (nav.sub = { chap: c.id }, closePlay()) : chapterReading(c); } }, { label: 'Retour', fn: () => { nav.sub = { chap: c.id }; closePlay(); } }] });
+  resultScreen({ title: 'Compréhension', big: `${res.ok} / ${res.n}`, ratio: res.ok / Math.max(1, res.n), sub: ok ? 'Étape validée.' : 'Relis le texte attentivement, il faut 2 bonnes réponses sur 3.', actions: [{ label: ok ? 'Continuer' : 'Réessayer', primary: true, fn: () => { ok ? (nav.sub = { chap: c.id }, closePlay()) : chapterReading(c); } }, { label: 'Retour', fn: () => { nav.sub = { chap: c.id }; closePlay(); } }] });
 }
 async function chapterFinal(c) {
   const list = shuffle([...c.ex.filter(x => x.type !== 'match'), ...c.reading.q]).slice(0, 8), st = CH(c.id);
@@ -386,7 +387,7 @@ async function chapterFinal(c) {
   const p = pct(res.ok, 8); st.final = Math.max(st.final, res.reason === 'done' ? p : 0);
   const pass = res.reason === 'done' && res.ok >= 6; if (pass) st.done = true; save();
   const next = D.chapters.find(x => x.id === c.id + 1);
-  resultScreen({ title: pass ? 'Chapitre réussi' : 'Défi manqué', big: `${res.ok} / 8`, sub: pass ? (next ? `Le chapitre « ${next.title} » est débloqué.` : 'Tu as terminé tout le parcours. Continue avec les jeux et le chat.') : 'Il faut 6 bonnes réponses sur 8 sans perdre les 3 vies. Relis la leçon si besoin.',
+  resultScreen({ title: pass ? 'Chapitre réussi' : 'Défi manqué', big: `${res.ok} / 8`, ratio: res.ok / 8, sub: pass ? (next ? `Le chapitre « ${next.title} » est débloqué.` : 'Tu as terminé tout le parcours. Continue avec les jeux et le chat.') : 'Il faut 6 bonnes réponses sur 8 sans perdre les 3 vies. Relis la leçon si besoin.',
     actions: [{ label: pass ? 'Voir le parcours' : 'Réessayer', primary: true, fn: () => { if (pass) { nav.sub = null; closePlay(); } else chapterFinal(c); } }, { label: 'Retour', fn: () => { nav.sub = { chap: c.id }; closePlay(); } }] });
 }
 
@@ -500,28 +501,34 @@ const TABS = [['home', 'Aujourd\'hui'], ['path', 'Parcours'], ['games', 'Jeux'],
 function render() {
   const v = $('#view'); v.replaceChildren();
   const f = { home: viewHome, path: viewPath, games: viewGames, chat: viewChat, stats: viewStats }[nav.tab];
-  v.append(f()); v.scrollTop = 0; window.scrollTo(0, 0);
-  $('#tabs').replaceChildren(...TABS.map(([k, l]) => el('button', { class: k === nav.tab ? 'on' : '', 'aria-current': k === nav.tab ? 'page' : false, onclick: () => { nav.tab = k; nav.sub = null; render(); } }, ic(k), el('span', {}, l))));
+  v.append(f()); window.scrollTo(0, 0);
+  $('#tabs').replaceChildren(...TABS.map(([k, l]) => el('button', { class: k === nav.tab ? 'on' : '', 'aria-current': k === nav.tab ? 'page' : false, onclick: () => { nav.tab = k; nav.sub = null; render(); } }, el('span', { class: 'pill' }, ic(k)), el('span', {}, l))));
 }
 const head = (t, sub, back) => el('header', { class: 'vhead' }, back ? el('button', { class: 'icon-btn', 'aria-label': 'Retour', onclick: back }, ic('back')) : null, el('div', {}, el('h1', {}, t), sub ? el('p', { class: 'muted' }, sub) : null));
 const section = (...c) => el('section', { class: 'enter' }, ...c);
+const rowBtn = (title, sub, fn, extra) => el('button', { class: 'row', onclick: fn }, el('div', { class: 'row-t' }, el('b', {}, title), sub ? el('span', {}, sub) : null), extra || null, ic('chevron', 'chev'));
 
 function viewHome() {
   const t = S.days[today()] || { n: 0 }, done = t.n >= GOAL, sn = streakNow();
   const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); const k = dstr(d); return { k, on: (S.days[k] || { n: 0 }).n >= GOAL, today: i === 6, l: 'DLMMJVS'[d.getDay()] }; });
   const ch = currentChapter(), st = S.chap[ch.id];
-  const pass = el('div', { class: 'pass' },
-    el('div', { class: 'pass-main' }, el('p', { class: 'kicker' }, done ? 'Objectif du jour atteint' : 'Séance du jour'), el('h2', {}, '12 exercices, environ 12 minutes'),
-      el('p', { class: 'muted' }, 'Révisions, verbes irréguliers et ton chapitre en cours.'),
-      el('button', { class: 'btn primary', onclick: startSession }, done ? 'Refaire une séance' : 'Commencer')),
-    el('div', { class: 'pass-stub' }, el('div', { class: 'streak' }, ic('flame'), el('b', {}, sn)), el('span', {}, sn > 1 ? 'jours de suite' : 'jour de suite'),
-      el('div', { class: 'week', 'aria-label': 'Les 7 derniers jours' }, week.map(w => el('i', { class: (w.on ? 'on ' : '') + (w.today ? 'today' : ''), title: w.k }, w.l))),
-      el('small', {}, `${Math.min(t.n, GOAL)} / ${GOAL} aujourd'hui`)));
+  const hero = el('div', { class: 'pass' },
+    el('div', { class: 'pass-main' },
+      el('p', { class: 'kicker' }, done ? 'Objectif du jour atteint' : 'Séance du jour'),
+      el('h2', {}, '12 exercices'),
+      el('p', { class: 'pass-sub' }, 'Environ 12 minutes : révisions, verbes irréguliers et ton chapitre en cours.'),
+      el('button', { class: 'btn light', onclick: startSession }, done ? 'Refaire une séance' : 'Commencer')),
+    el('div', { class: 'pass-stub' },
+      el('div', { class: 'streak' }, ic('flame'), el('b', {}, sn)),
+      el('span', { class: 'streak-l' }, sn > 1 ? 'jours de suite' : 'jour de suite'),
+      el('div', { class: 'week', 'aria-label': 'Les 7 derniers jours' }, week.map(w => el('span', { class: (w.on ? 'on ' : '') + (w.today ? 'today' : ''), title: w.k }, el('i'), el('em', {}, w.l)))),
+      el('small', {}, `${Math.min(t.n, GOAL)} sur ${GOAL} aujourd'hui`)));
   return section(head('Aujourd\'hui', new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })),
-    !S.level ? el('button', { class: 'card cta', onclick: levelTest }, el('div', {}, el('h3', {}, 'Commence par le test de niveau'), el('p', { class: 'muted' }, '30 questions qui s\'adaptent à toi. Il règle ton parcours et estime ton score TOEIC.')), ic('chevron')) : null,
-    pass,
-    el('button', { class: 'card row-card', onclick: () => { nav.tab = 'path'; nav.sub = { chap: ch.id }; render(); } }, el('div', {}, el('p', { class: 'muted' }, 'Chapitre en cours'), el('h3', {}, `${ch.id}. ${ch.title}`), el('p', { class: 'muted' }, st && st.practice ? `Exercices : ${st.practice} %` : ch.sub)), ic('chevron')),
-    S.level ? el('div', { class: 'duo' }, el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'Niveau estimé'), el('b', {}, S.level.level)), el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'TOEIC estimé'), el('b', {}, '≈ ' + S.level.toeic))) : null);
+    !S.level ? el('button', { class: 'banner', onclick: levelTest }, el('div', {}, el('b', {}, 'Commence par le test de niveau'), el('span', {}, '30 questions qui s\'adaptent à toi, pour régler ton parcours et estimer ton score TOEIC.')), ic('chevron', 'chev')) : null,
+    hero,
+    el('div', { class: 'panel' },
+      rowBtn(`${ch.id}. ${ch.title}`, 'Chapitre en cours · ' + (st && st.practice ? `exercices ${st.practice} %` : ch.sub), () => { nav.tab = 'path'; nav.sub = { chap: ch.id }; render(); }),
+      S.level ? el('div', { class: 'kv' }, el('div', {}, el('span', {}, 'Niveau estimé'), el('b', {}, S.level.level)), el('div', {}, el('span', {}, 'Score TOEIC estimé'), el('b', {}, '≈ ' + S.level.toeic))) : null));
 }
 
 function viewPath() {
@@ -533,31 +540,33 @@ function viewPath() {
       const open = isUnlocked(c.id), done = !!(S.chap[c.id] && S.chap[c.id].done), n = stepsOf(c).filter(s => s.done).length;
       return el('li', { class: 'stop ' + (done ? 'done' : open ? (c.id === cur.id ? 'current' : 'open') : 'locked') },
         el('span', { class: 'node' }, done ? ic('check') : open ? String(c.id) : ic('lock')),
-        el('button', { class: 'card stop-card', onclick: () => open ? (nav.sub = { chap: c.id }, render()) : toast('Réussis le défi final du chapitre précédent pour débloquer celui-ci.') },
-          el('div', {}, el('h3', {}, c.title), el('p', { class: 'muted' }, c.sub), el('div', { class: 'meter' }, el('i', { style: `width:${open ? n * 25 : 0}%` }))), el('span', { class: 'lvl' }, c.lvl)));
+        el('button', { class: 'stop-card', onclick: () => open ? (nav.sub = { chap: c.id }, render()) : toast('Réussis le défi final du chapitre précédent pour débloquer celui-ci.') },
+          el('div', { class: 'stop-top' }, el('h3', {}, c.title), el('span', { class: 'lvl' }, c.lvl)), el('p', { class: 'muted' }, c.sub),
+          open ? el('div', { class: 'meter', 'aria-label': `${n} étapes sur 4` }, el('i', { style: `width:${n * 25}%` })) : null));
     })));
 }
 function viewChapter(c) {
   return section(head(`${c.id}. ${c.title}`, c.sub, () => { nav.sub = null; render(); }),
-    el('ul', { class: 'steps' }, stepsOf(c).map(s => el('li', {}, el('button', { class: 'card step ' + (s.done ? 'done' : ''), disabled: !s.open, onclick: s.fn }, el('span', { class: 'sicon' }, s.done ? ic('check') : s.open ? ic('chevron') : ic('lock')), el('div', {}, el('h3', {}, s.label), el('p', { class: 'muted' }, s.open ? s.note : 'Termine l\'étape précédente'))))))
-  );
+    el('div', { class: 'panel' }, stepsOf(c).map(s => el('button', { class: 'row step ' + (s.done ? 'done' : ''), disabled: !s.open, onclick: s.fn },
+      el('span', { class: 'sicon' }, s.done ? ic('check') : s.open ? null : ic('lock')),
+      el('div', { class: 'row-t' }, el('b', {}, s.label), el('span', {}, s.open ? s.note : 'Termine l\'étape précédente')), s.open ? ic('chevron', 'chev') : null))));
 }
 function viewLesson(c) {
   return section(head('Leçon', `${c.id}. ${c.title}`, () => { nav.sub = { chap: c.id }; render(); }),
-    el('div', { class: 'card prose' }, el('h3', {}, 'À retenir'), el('ul', {}, c.lesson.points.map(p => el('li', {}, p)))),
-    el('div', { class: 'card' }, el('h3', {}, 'Phrases utiles à dire à voix haute'), el('ul', { class: 'phr' }, c.lesson.phrases.map(([en, fr]) => el('li', {}, el('div', {}, el('b', {}, en), el('p', { class: 'muted' }, fr)), speakBtn(en))))),
+    el('div', { class: 'panel pad prose' }, el('h3', {}, 'À retenir'), el('ul', {}, c.lesson.points.map(p => el('li', {}, p)))),
+    el('div', { class: 'panel pad' }, el('h3', {}, 'Phrases utiles à dire à voix haute'), el('ul', { class: 'phr' }, c.lesson.phrases.map(([en, fr]) => el('li', {}, el('div', {}, el('b', {}, en), el('p', { class: 'muted' }, fr)), speakBtn(en))))),
     el('button', { class: 'btn primary wide', onclick: () => { CH(c.id).lesson = true; save(); nav.sub = { chap: c.id }; render(); } }, 'J\'ai compris, continuer'));
 }
 
 function viewGames() {
   return section(head('Jeux', 'Des séries courtes pour fixer ce qui compte.'),
-    GAMES.map(g => el('div', { class: 'card game' }, el('h3', {}, g.title), el('p', { class: 'muted' }, g.sub),
-      el('div', { class: 'modes' }, g.modes.map(m => el('button', { class: 'btn ghost', onclick: m.fn }, m.label, m.note && m.note() ? el('small', {}, m.note()) : null))))));
+    GAMES.map(g => el('div', { class: 'panel game' }, el('div', { class: 'panel-h' }, el('h3', {}, g.title), el('p', { class: 'muted' }, g.sub)),
+      g.modes.map(m => el('button', { class: 'row', onclick: m.fn }, el('div', { class: 'row-t' }, el('b', {}, m.label)), m.note && m.note() ? el('span', { class: 'tag' }, m.note()) : null, ic('chevron', 'chev'))))));
 }
 
 function viewChat() {
   return section(head('Chat', 'Discute en anglais. Chaque faute est repérée et expliquée en français.'),
-    SCN.map(s => el('button', { class: 'card row-card', onclick: () => openChat(s) }, el('div', {}, el('h3', {}, s.title), el('p', { class: 'muted' }, s.sub)), ic('chevron'))),
+    el('div', { class: 'panel' }, SCN.map(s => rowBtn(s.title, s.sub, () => openChat(s)))),
     el('p', { class: 'note' }, 'Le chat est la seule partie qui demande une connexion. Tes erreurs reviennent ensuite dans les séances.'));
 }
 
@@ -567,19 +576,19 @@ function viewStats() {
   const mastered = Object.entries(S.items).filter(([id, r]) => /^(v|w)\./.test(id) && r.box >= 3).length;
   const errs = Object.entries(S.errors).sort((a, b) => b[1] - a[1]).slice(0, 5), me = errs.length ? errs[0][1] : 1;
   const hist = S.history.slice(-8);
-  const spark = hist.length > 1 ? (() => { const w = 260, h = 60, lo = Math.min(...hist.map(x => x.toeic)) - 20, hi = Math.max(...hist.map(x => x.toeic)) + 20; const pts = hist.map((x, i) => `${(i / (hist.length - 1) * w).toFixed(1)},${(h - (x.toeic - lo) / (hi - lo) * h).toFixed(1)}`).join(' '); return el('div', { html: `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Évolution du score TOEIC estimé"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>` }); })() : null;
+  const spark = hist.length > 1 ? (() => { const w = 260, h = 56, lo = Math.min(...hist.map(x => x.toeic)) - 20, hi = Math.max(...hist.map(x => x.toeic)) + 20; const pts = hist.map((x, i) => `${(i / (hist.length - 1) * w).toFixed(1)},${(h - (x.toeic - lo) / (hi - lo) * h).toFixed(1)}`).join(' '); return el('div', { html: `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Évolution du score TOEIC estimé"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>` }); })() : null;
   const set = S.settings;
-  const keyIn = el('input', { class: 'field', type: 'password', placeholder: 'Clé API Anthropic (facultatif)', value: set.key, autocomplete: 'off', onchange: e => { set.key = e.target.value.trim(); save(); } });
+  const keyIn = el('input', { class: 'field', type: 'password', placeholder: 'Clé API Anthropic', value: set.key, autocomplete: 'off', 'aria-label': 'Clé API Anthropic', onchange: e => { set.key = e.target.value.trim(); save(); } });
+  const metric = (l, v, s) => el('div', { class: 'metric' }, el('span', {}, l), el('b', {}, v), s ? el('small', {}, s) : null);
   return section(head('Progrès'),
-    el('div', { class: 'card level' }, S.level ? [el('div', {}, el('p', { class: 'muted' }, 'Niveau estimé'), el('b', { class: 'huge' }, S.level.level)), el('div', {}, el('p', { class: 'muted' }, 'Score TOEIC estimé'), el('b', { class: 'huge' }, '≈ ' + S.level.toeic), spark)] : el('div', {}, el('h3', {}, 'Pas encore de test'), el('p', { class: 'muted' }, 'Le test donne ton niveau et ton score TOEIC estimé.'))),
+    el('div', { class: 'panel pad level' }, S.level ? [el('div', {}, el('span', { class: 'cap' }, 'Niveau estimé'), el('b', { class: 'huge' }, S.level.level), el('small', {}, 'Test du ' + new Date(S.level.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))), el('div', {}, el('span', { class: 'cap' }, 'Score TOEIC estimé'), el('b', { class: 'huge' }, '≈ ' + S.level.toeic), spark)] : el('div', {}, el('h3', {}, 'Pas encore de test'), el('p', { class: 'muted' }, 'Le test donne ton niveau et ton score TOEIC estimé.'))),
     el('button', { class: 'btn ghost wide', onclick: levelTest }, S.level ? 'Refaire le test de niveau' : 'Passer le test de niveau'),
-    el('div', { class: 'duo' }, el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'Série en cours'), el('b', {}, streakNow()), el('small', {}, `Record : ${S.streak.best}`)), el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'Taux de réussite'), el('b', {}, tot.n ? pct(tot.ok, tot.n) + ' %' : '–'), el('small', {}, `${tot.n} réponses`))),
-    el('div', { class: 'duo' }, el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'Mots maîtrisés'), el('b', {}, mastered)), el('div', { class: 'card stat' }, el('span', { class: 'muted' }, 'Messages au chat'), el('b', {}, S.chatCount))),
-    el('div', { class: 'card' }, el('h3', {}, '7 derniers jours'), el('div', { class: 'bars' }, days.map(d => el('div', {}, el('i', { style: `height:${Math.max(4, d.n / mx * 100)}%`, class: d.n >= GOAL ? 'on' : '' }), el('span', {}, d.l))))),
-    el('div', { class: 'card' }, el('h3', {}, 'Erreurs fréquentes'), errs.length ? errs.map(([k, v]) => el('div', { class: 'erow' }, el('span', {}, TAGS[k] || k), el('div', { class: 'meter' }, el('i', { style: `width:${v / me * 100}%` })), el('b', {}, v))) : el('p', { class: 'muted' }, 'Rien pour l\'instant. Les erreurs apparaîtront ici.')),
-    el('div', { class: 'card' }, el('h3', {}, 'Réglages'),
+    el('div', { class: 'panel grid4' }, metric('Série en cours', streakNow(), `Record : ${S.streak.best}`), metric('Taux de réussite', tot.n ? pct(tot.ok, tot.n) + ' %' : '–', `${tot.n} réponses`), metric('Mots maîtrisés', mastered), metric('Messages au chat', S.chatCount)),
+    el('div', { class: 'panel pad' }, el('h3', {}, '7 derniers jours'), el('div', { class: 'bars' }, days.map(d => el('div', {}, el('i', { style: `height:${Math.max(4, d.n / mx * 100)}%`, class: d.n >= GOAL ? 'on' : '' }), el('span', {}, d.l))))),
+    el('div', { class: 'panel pad' }, el('h3', {}, 'Erreurs fréquentes'), errs.length ? errs.map(([k, v]) => el('div', { class: 'erow' }, el('span', {}, TAGS[k] || k), el('div', { class: 'meter' }, el('i', { style: `width:${v / me * 100}%` })), el('b', {}, v))) : el('p', { class: 'muted' }, 'Rien pour l\'instant. Les erreurs apparaîtront ici.')),
+    el('div', { class: 'panel pad' }, el('h3', {}, 'Réglages'),
       el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: set.voice, onchange: e => { set.voice = e.target.checked; save(); } }), el('span', {}, 'Lire les réponses du chat à voix haute')),
-      el('p', { class: 'muted' }, 'Chat : le mode gratuit ne demande aucun compte. Si tu as une clé API Anthropic, tu peux l\'ajouter pour de meilleures réponses.'),
+      el('p', { class: 'muted' }, 'Le chat gratuit ne demande aucun compte, mais il est limité à un message toutes les 45 secondes. Avec une clé API Anthropic, les réponses sont rapides et plus fiables.'),
       el('div', { class: 'seg' }, ['free', 'anthropic'].map(p => el('button', { class: 'btn ' + (set.provider === p ? 'primary' : 'ghost'), onclick: () => { set.provider = p; save(); render(); } }, p === 'free' ? 'Gratuit' : 'Clé Anthropic'))),
       set.provider === 'anthropic' ? keyIn : null,
       el('div', { class: 'seg' }, el('button', { class: 'btn ghost', onclick: exportData }, 'Exporter mes données'), el('button', { class: 'btn ghost danger', onclick: () => sheet('Effacer tous tes progrès sur cet appareil ? Cette action est définitive.', [{ label: 'Annuler', primary: true }, { label: 'Tout effacer', fn: () => { S = defState(); save(); location.reload(); } }]) }, 'Réinitialiser'))));
